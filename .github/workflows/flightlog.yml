@@ -1,0 +1,41 @@
+name: Flight log
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # a cada 6 horas
+  workflow_dispatch: # botão "Run workflow" pra rodar na hora
+  push:
+    branches: [main]
+    paths: ["cmd/**", ".github/workflows/flightlog.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Gerar SVGs
+        env:
+          GH_USER: ${{ github.repository_owner }}
+          # FLIGHTLOG_TOKEN (opcional) inclui contribuições privadas; sem ele usa o token padrão
+          GH_TOKEN: ${{ secrets.FLIGHTLOG_TOKEN || secrets.GITHUB_TOKEN }}
+          WAKATIME_API_KEY: ${{ secrets.WAKATIME_API_KEY }}
+          LOGBOOK_START: "2026-11-01"
+        run: go run ./cmd/flightlog
+
+      - name: Publicar na branch output
+        run: |
+          cd dist
+          git init -q -b output
+          git config user.name "flightlog-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -qm "flight log $(date -u +%F)"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" output
