@@ -73,8 +73,15 @@ func main() {
 			fail("GH_TOKEN não definido")
 		}
 		weeks = fetchCalendar(token, user)
-		st.Commits, st.PRs = fetchSince(token, user, start, today)
 		st.ActiveDays, st.Streak = activity(weeks, start)
+		// voos = todas as contribuições desde a abertura, igual ao gráfico do perfil
+		for _, w := range weeks {
+			for _, d := range w {
+				if !d.Date.Before(start) {
+					st.Commits += d.Count
+				}
+			}
+		}
 		if key := os.Getenv("WAKATIME_API_KEY"); key != "" {
 			st.Seconds, st.Languages, err = fetchWakaTime(key, start, today)
 			if err != nil {
@@ -354,7 +361,7 @@ func logbook(user string, st stats) string {
 	}
 	cells := []struct{ label, value string }{
 		{"TOTAL FLIGHT TIME", hours},
-		{"FLIGHTS · COMMITS", fmt.Sprint(st.Commits)},
+		{"FLIGHTS · CONTRIBUTIONS", fmt.Sprint(st.Commits)},
 		{"DAYS AIRBORNE", fmt.Sprint(st.ActiveDays)},
 		{"CURRENT STREAK", fmt.Sprintf("%d d", st.Streak)},
 	}
