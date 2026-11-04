@@ -2,7 +2,7 @@
 
 ### ✈️ Pre-flight briefing
 
-- 🛫 Backend com **Go** (GCP, Kubernetes) no dia a dia e **Java/Spring Boot** nos projetos
+- 🛫 Backend com **Go** e **Java/Spring Boot**, rodando em **GCP** e **Kubernetes**
 - 🧭 Integrações com Google Merchant Center, Meta Ads, GA, VTEX e Salesforce
 - ♟️ Também desenvolvo sistemas sob medida pela **Fianchetto Sistemas**
 <p align="center"> <img src="https://raw.githubusercontent.com/Gustavo-Oliveira7/Gustavo-Oliveira7/output/logbook.svg" alt="Pilot logbook" /> </p>
