@@ -83,11 +83,12 @@ func main() {
 			}
 		}
 		if key := os.Getenv("WAKATIME_API_KEY"); key != "" {
-			st.Seconds, st.Languages, err = fetchWakaTime(key, start, today)
+			st.Seconds, st.Languages, err = flightTime(key, start, today)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "aviso: WakaTime indisponível:", err)
 			} else {
 				st.HasWakaTime = true
+				fmt.Printf("WakaTime: %.0f segundos desde %s\n", st.Seconds, start.Format("2006-01-02"))
 			}
 		}
 	}
@@ -203,23 +204,86 @@ func activity(weeks [][]day, start time.Time) (active, streak int) {
 }
 
 // ---------- WakaTime ----------
+//
+// O plano gratuito do WakaTime só devolve os últimos ~7 dias pela API.
+// Por isso cada execução busca a última semana e grava dia a dia num
+// livro-razão (dist/flight-ledger.json), que o workflow guarda na branch
+// output. O total do logbook é a soma do livro-razão desde LOGBOOK_START.
 
-func fetchWakaTime(key string, from, to time.Time) (float64, []langTime, error) {
-	url := fmt.Sprintf("https://wakatime.com/api/v1/users/current/summaries?start=%s&end=%s",
-		from.Format("2006-01-02"), to.Format("2006-01-02"))
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(key)))
-	resp, err := http.DefaultClient.Do(req)
+const ledgerPath = "dist/flight-ledger.json"
+
+type dayLog struct {
+	Seconds float64            `json:"seconds"`
+	Langs   map[string]float64 `json:"langs"`
+}
+
+func flightTime(key string, start, today time.Time) (float64, []langTime, error) {
+	ledger := map[string]dayLog{}
+	if raw, err := os.ReadFile(ledgerPath); err == nil {
+		_ = json.Unmarshal(raw, &ledger)
+	}
+
+	from := today.AddDate(0, 0, -6)
+	if from.Before(start) {
+		from = start
+	}
+	days, err := fetchWakaTime(key, from, today)
 	if err != nil {
 		return 0, nil, err
 	}
+	for date, d := range days {
+		ledger[date] = d
+	}
+
+	must(os.MkdirAll("dist", 0o755))
+	raw, _ := json.MarshalIndent(ledger, "", "  ")
+	write(ledgerPath, string(raw))
+
+	var total float64
+	agg := map[string]float64{}
+	for date, d := range ledger {
+		t, err := time.Parse("2006-01-02", date)
+		if err != nil || t.Before(start) {
+			continue
+		}
+		total += d.Seconds
+		for n, sec := range d.Langs {
+			agg[n] += sec
+		}
+	}
+	var langs []langTime
+	for n, sec := range agg {
+		if sec >= 60 {
+			langs = append(langs, langTime{n, sec})
+		}
+	}
+	sort.Slice(langs, func(i, j int) bool { return langs[i].Seconds > langs[j].Seconds })
+	return total, langs, nil
+}
+
+func fetchWakaTime(key string, from, to time.Time) (map[string]dayLog, error) {
+	url := fmt.Sprintf("https://wakatime.com/api/v1/users/current/summaries?start=%s&end=%s",
+		from.Format("2006-01-02"), to.Format("2006-01-02"))
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(strings.TrimSpace(key))))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return 0, nil, fmt.Errorf("status %d", resp.StatusCode)
+		var e struct{ Error string }
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		return nil, fmt.Errorf("status %d %s", resp.StatusCode, e.Error)
 	}
 	var r struct {
-		CumulativeTotal struct{ Seconds float64 } `json:"cumulative_total"`
-		Data            []struct {
+		Data []struct {
+			GrandTotal struct {
+				TotalSeconds float64 `json:"total_seconds"`
+			} `json:"grand_total"`
+			Range struct {
+				Date string
+			}
 			Languages []struct {
 				Name         string
 				TotalSeconds float64 `json:"total_seconds"`
@@ -227,20 +291,20 @@ func fetchWakaTime(key string, from, to time.Time) (float64, []langTime, error) 
 		}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return 0, nil, err
+		return nil, err
 	}
-	agg := map[string]float64{}
+	out := map[string]dayLog{}
 	for _, d := range r.Data {
-		for _, l := range d.Languages {
-			agg[l.Name] += l.TotalSeconds
+		if d.Range.Date == "" {
+			continue
 		}
+		langs := map[string]float64{}
+		for _, l := range d.Languages {
+			langs[l.Name] += l.TotalSeconds
+		}
+		out[d.Range.Date] = dayLog{d.GrandTotal.TotalSeconds, langs}
 	}
-	var langs []langTime
-	for n, s := range agg {
-		langs = append(langs, langTime{n, s})
-	}
-	sort.Slice(langs, func(i, j int) bool { return langs[i].Seconds > langs[j].Seconds })
-	return r.CumulativeTotal.Seconds, langs, nil
+	return out, nil
 }
 
 // ---------- SVG: voo noturno ----------
