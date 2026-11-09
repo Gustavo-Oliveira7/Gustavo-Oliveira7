@@ -21,6 +21,11 @@ jobs:
         with:
           go-version: "1.24"
 
+      - name: Recuperar livro-razão das horas de voo
+        run: |
+          mkdir -p dist
+          git fetch -q origin output && git show origin/output:flight-ledger.json > dist/flight-ledger.json || rm -f dist/flight-ledger.json
+
       - name: Gerar SVGs
         env:
           GH_USER: ${{ github.repository_owner }}
